@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { ensureAcmeCompany } from "./seed";
+import { ANALYTICS_SUITE_PRODUCT_ID, ensureAcmeCompany } from "./seed";
 
 export interface ResetResult {
   companyId: string;
@@ -20,10 +20,5 @@ export function resetAllData(): ResetResult {
   });
   clear();
   const companyId = ensureAcmeCompany();
-  const productRow = db
-    .prepare(
-      `SELECT id FROM products WHERE company_id = ? AND name = 'Analytics Suite' LIMIT 1`
-    )
-    .get(companyId) as { id: string } | undefined;
-  return { companyId, productId: productRow?.id ?? null };
+  return { companyId, productId: ANALYTICS_SUITE_PRODUCT_ID };
 }

@@ -25,9 +25,12 @@ export function getCompany(companyId: string): Company | null {
   );
 }
 
-export function createCompany(name: string): string {
+export function createCompany(name: string, id?: string): string {
   const db = getDb();
-  const id = randomUUID();
-  db.prepare(`INSERT INTO companies (id, name) VALUES (?, ?)`).run(id, name.trim());
-  return id;
+  const companyId = id ?? randomUUID();
+  db.prepare(`INSERT INTO companies (id, name) VALUES (?, ?)`).run(
+    companyId,
+    name.trim()
+  );
+  return companyId;
 }

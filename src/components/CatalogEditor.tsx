@@ -159,7 +159,9 @@ export function CatalogEditor({
         }),
     };
 
-    const url = productId ? `/api/products/${productId}` : "/api/products";
+    const url = productId
+      ? `/api/products/${productId}?companyId=${encodeURIComponent(companyId)}`
+      : "/api/products";
     const method = productId ? "PUT" : "POST";
     const res = await fetch(url, {
       method,

@@ -29,7 +29,7 @@ Database: `data/monetizely.db` (set `DATABASE_PATH` to override).
 3. Optional env: `DATABASE_PATH=/tmp/monetizely.db` (auto-used on Vercel if unset).
 4. Deploy.
 
-**Note:** Serverless storage is ephemeral — data may reset on cold starts. Fine for demos; use Turso/Neon or a persistent host for production.
+**Note:** Serverless storage is ephemeral — each Vercel instance uses its own `/tmp/monetizely.db`. The default ACME catalogue uses **fixed IDs** so saves work across instances; data still resets on cold starts. For production, use Turso/Neon or another persistent database.
 
 ## Assumptions
 

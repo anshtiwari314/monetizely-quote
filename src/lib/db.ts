@@ -155,6 +155,9 @@ function createDb(): Database.Database {
 export function getDb(): Database.Database {
   if (!globalForDb.sqlite) {
     globalForDb.sqlite = createDb();
+    // Seed on every new connection (each Vercel serverless instance has its own /tmp DB).
+    const { ensureAcmeCompany } = require("./seed") as typeof import("./seed");
+    ensureAcmeCompany();
   } else {
     // Re-run after hot reload so older cached connections pick up new tables/columns.
     runMigrations(globalForDb.sqlite);

@@ -77,13 +77,17 @@ export interface CreateProductInput {
   }[];
 }
 
-export function createProduct(companyId: string, input: CreateProductInput): string {
+export function createProduct(
+  companyId: string,
+  input: CreateProductInput,
+  productId?: string
+): string {
   const db = getDb();
-  const productId = randomUUID();
+  const id = productId ?? randomUUID();
 
   const insertProduct = db.transaction(() => {
     db.prepare("INSERT INTO products (id, name, company_id) VALUES (?, ?, ?)").run(
-      productId,
+      id,
       input.name,
       companyId
     );
@@ -97,7 +101,7 @@ export function createProduct(companyId: string, input: CreateProductInput): str
          VALUES (?, ?, ?, ?, ?, ?)`
       ).run(
         tierId,
-        productId,
+        id,
         tier.name,
         tier.basePricePerSeat,
         tier.notes ?? null,
@@ -111,7 +115,7 @@ export function createProduct(companyId: string, input: CreateProductInput): str
       featureIds.push(featureId);
       db.prepare(
         `INSERT INTO features (id, product_id, name, sort_order) VALUES (?, ?, ?, ?)`
-      ).run(featureId, productId, feature.name, i);
+      ).run(featureId, id, feature.name, i);
     });
 
     for (const cell of input.matrix) {
@@ -139,7 +143,7 @@ export function createProduct(companyId: string, input: CreateProductInput): str
   });
 
   insertProduct();
-  return productId;
+  return id;
 }
 
 export function updateProduct(

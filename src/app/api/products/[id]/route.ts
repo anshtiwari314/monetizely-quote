@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { deleteProduct, getProductDetail, updateProduct } from "@/lib/catalog";
 import type { CreateProductInput } from "@/lib/catalog";
+import { ensureAcmeCompany } from "@/lib/seed";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  ensureAcmeCompany();
   const { id } = await params;
   const product = getProductDetail(id);
   if (!product) {
@@ -18,6 +20,7 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  ensureAcmeCompany();
   const { id } = await params;
   const body = (await request.json()) as CreateProductInput;
   const existing = getProductDetail(id);

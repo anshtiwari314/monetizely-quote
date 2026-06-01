@@ -1,16 +1,20 @@
-import { createCompany, listCompanies } from "./companies";
-import { createProduct, listProducts } from "./catalog";
+import { createCompany, getCompany, listCompanies } from "./companies";
+import {
+  createProduct,
+  getProductDetail,
+  listProducts,
+  type CreateProductInput,
+} from "./catalog";
 import { getDb } from "./db";
 
 export const DEFAULT_COMPANY_NAME = "ACME";
 
-/** Seeds Analytics Suite catalogue for the default ACME company only. */
-export function seedAcmeCatalog(companyId: string): string | null {
-  const existing = listProducts(companyId);
-  const match = existing.find((p) => p.name === "Analytics Suite");
-  if (match) return match.id;
+/** Stable IDs so every Vercel serverless instance seeds the same rows in /tmp. */
+export const ACME_COMPANY_ID = "a0000000-0000-4000-8000-000000000001";
+export const ANALYTICS_SUITE_PRODUCT_ID = "a0000000-0000-4000-8000-000000000002";
 
-  return createProduct(companyId, {
+/** Seeds Analytics Suite catalogue for the default ACME company only. */
+const analyticsSuiteSeed: CreateProductInput = {
     name: "Analytics Suite",
     tiers: [
       { name: "Starter", basePricePerSeat: 25, notes: "Entry tier for small teams" },
@@ -66,7 +70,16 @@ export function seedAcmeCatalog(companyId: string): string | null {
       { featureIndex: 6, tierIndex: 2, pricingModel: "fixed", value: 300 },
       { featureIndex: 7, tierIndex: 2, pricingModel: "percent", value: 5 },
     ],
-  });
+};
+
+export function seedAcmeCatalog(companyId: string): string | null {
+  const stable = getProductDetail(ANALYTICS_SUITE_PRODUCT_ID);
+  if (stable?.companyId === companyId) return ANALYTICS_SUITE_PRODUCT_ID;
+
+  const match = listProducts(companyId).find((p) => p.name === "Analytics Suite");
+  if (match) return match.id;
+
+  return createProduct(companyId, analyticsSuiteSeed, ANALYTICS_SUITE_PRODUCT_ID);
 }
 
 function findAcmeCompanyId(): string | undefined {
@@ -78,18 +91,20 @@ function findAcmeCompanyId(): string | undefined {
 
 /** Ensures default ACME company exists; migrates orphan rows only to ACME. */
 export function ensureAcmeCompany(): string {
-  let id = findAcmeCompanyId();
-  if (!id) {
-    id = createCompany(DEFAULT_COMPANY_NAME);
+  const db = getDb();
+  if (!getCompany(ACME_COMPANY_ID)) {
+    const legacyId = findAcmeCompanyId();
+    if (!legacyId) {
+      createCompany(DEFAULT_COMPANY_NAME, ACME_COMPANY_ID);
+    }
   } else {
-    const db = getDb();
     db.prepare(`UPDATE companies SET name = ? WHERE id = ?`).run(
       DEFAULT_COMPANY_NAME,
-      id
+      ACME_COMPANY_ID
     );
   }
 
-  const db = getDb();
+  const id = getCompany(ACME_COMPANY_ID) ? ACME_COMPANY_ID : findAcmeCompanyId()!;
   db.prepare(`UPDATE products SET company_id = ? WHERE company_id IS NULL`).run(id);
   db.prepare(`UPDATE quotes SET company_id = ? WHERE company_id IS NULL`).run(id);
   seedAcmeCatalog(id);
