@@ -1,20 +1,62 @@
-import { createClient, type Client } from "@libsql/client";
+import { createClient as createNodeClient, type Client } from "@libsql/client";
+import { createClient as createWebClient } from "@libsql/client/web";
 
 const globalForDb = globalThis as unknown as { libsql?: Client; schemaReady?: Promise<void> };
 
+/** Avoid Next.js patch-fetch + Node 24 crash when Turso returns 4xx/5xx. */
+function tursoFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  if (input instanceof Request) {
+    const headers = new Headers(input.headers);
+    if (init?.headers) {
+      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+    }
+    const method = init?.method ?? input.method;
+    const body = init?.body ?? input.body;
+    return fetch(input.url, { method, headers, body });
+  }
+  return fetch(input, init);
+}
+
+function stripEnvQuotes(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
 function createClientFromEnv(): Client {
-  console.log("TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL);
-  console.log("TURSO_AUTH_TOKEN:", process.env.TURSO_AUTH_TOKEN);
-  const tursoUrl = process.env.TURSO_DATABASE_URL;
+  const tursoUrl = stripEnvQuotes(process.env.TURSO_DATABASE_URL);
+  const tursoToken = stripEnvQuotes(process.env.TURSO_AUTH_TOKEN);
+
+  if (process.env.VERCEL && !tursoUrl) {
+    throw new Error(
+      "TURSO_DATABASE_URL is not set on Vercel. Add it in Project → Settings → Environment Variables, then redeploy."
+    );
+  }
+  if (tursoUrl && !tursoToken) {
+    throw new Error(
+      "TURSO_AUTH_TOKEN is missing. Run: turso db tokens create <your-db-name>"
+    );
+  }
+
   if (tursoUrl) {
-    return createClient({
+    return createWebClient({
       url: tursoUrl,
-      authToken: process.env.TURSO_AUTH_TOKEN,
+      authToken: tursoToken,
+      fetch: tursoFetch,
     });
   }
   const path = process.env.DATABASE_PATH ?? "./data/monetizely.db";
   const url = path.startsWith("file:") ? path : `file:${path}`;
-  return createClient({ url });
+  return createNodeClient({ url });
 }
 
 export function getClient(): Client {
