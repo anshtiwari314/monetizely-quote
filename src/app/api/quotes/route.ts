@@ -7,13 +7,13 @@ export async function GET(request: Request) {
   if (!companyId) {
     return NextResponse.json({ error: "companyId is required" }, { status: 400 });
   }
-  return NextResponse.json(listQuotes(companyId));
+  return NextResponse.json(await listQuotes(companyId));
 }
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as QuoteInput;
-    const id = createQuote(body);
+    const id = await createQuote(body);
     return NextResponse.json({ id }, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to create quote";

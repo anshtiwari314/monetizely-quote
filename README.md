@@ -1,10 +1,25 @@
 # Monetizely Quote Tool
 
-Next.js + TypeScript + SQLite (`better-sqlite3`). Each company has its own catalogue and quotes. Client share link: `/q/[id]` (no app header).
+Next.js + TypeScript + **Turso** (libSQL / SQLite). Each company has its own catalogue and quotes. Client share link: `/q/[id]` (no app header).
 
 **Browser:** Use Google Chrome as your primary browser — this site has been tested on Chrome.
 
 ## Run locally
+
+1. Copy env and add your Turso credentials:
+
+```bash
+cp .env.example .env
+```
+
+Get URL and token from Turso:
+
+```bash
+turso db show monetizely --url
+turso db tokens create monetizely
+```
+
+2. Start the app:
 
 ```bash
 cd monetizely-quote
@@ -20,16 +35,18 @@ npm run test:e2e  # catalogue → quote → share URL
 npm run build && npm start
 ```
 
-Database: `data/monetizely.db` (set `DATABASE_PATH` to override).
+Without `TURSO_*` env vars, the app falls back to a local file at `data/monetizely.db`.
 
 ## Deploy on Vercel
 
 1. Import the `monetizely-quote` folder as the project root.
 2. Framework preset: **Next.js** (default).
-3. Optional env: `DATABASE_PATH=/tmp/monetizely.db` (auto-used on Vercel if unset).
+3. Add environment variables (Project → Settings → Environment Variables):
+   - `TURSO_DATABASE_URL` — from `turso db show <db-name> --url`
+   - `TURSO_AUTH_TOKEN` — from `turso db tokens create <db-name>`
 4. Deploy.
 
-**Note:** Serverless storage is ephemeral — each Vercel instance uses its own `/tmp/monetizely.db`. The default ACME catalogue uses **fixed IDs** so saves work across instances; data still resets on cold starts. For production, use Turso/Neon or another persistent database.
+Schema is created automatically on first request.
 
 ## Assumptions
 
@@ -41,10 +58,10 @@ Database: `data/monetizely.db` (set `DATABASE_PATH` to override).
 
 ## Decisions
 
-- **SQLite + better-sqlite3** — no external DB service; file at `data/` locally, `/tmp` on Vercel.
+- **Turso (libSQL)** — persistent SQLite in the cloud; works on Vercel serverless.
 - **ACME sample seed only** for the default company (not every new company).
 - **`/q/[id]`** for clients; `/quotes/...` and `/companies/...` for internal use.
 
 ## Next
 
-- Quote preview before save, PDF export, persistent hosted database.
+- Quote preview before save, PDF export.

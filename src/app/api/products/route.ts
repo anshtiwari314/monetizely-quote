@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   if (!companyId) {
     return NextResponse.json({ error: "companyId is required" }, { status: 400 });
   }
-  return NextResponse.json(listProducts(companyId));
+  return NextResponse.json(await listProducts(companyId));
 }
 
 export async function POST(request: Request) {
@@ -16,6 +16,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "companyId is required" }, { status: 400 });
   }
   const { companyId, ...input } = body;
-  const id = createProduct(companyId, input);
+  const id = await createProduct(companyId, input);
   return NextResponse.json({ id }, { status: 201 });
 }

@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const quote = getQuote(id);
+  const quote = await getQuote(id);
   if (!quote) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -21,7 +21,7 @@ export async function PUT(
   const { id } = await params;
   try {
     const body = (await request.json()) as QuoteInput;
-    updateQuote(id, body);
+    await updateQuote(id, body);
     return NextResponse.json({ id });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to update quote";
@@ -39,7 +39,7 @@ export async function DELETE(
   if (!companyId) {
     return NextResponse.json({ error: "companyId is required" }, { status: 400 });
   }
-  const ok = deleteQuote(id, companyId);
+  const ok = await deleteQuote(id, companyId);
   if (!ok) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

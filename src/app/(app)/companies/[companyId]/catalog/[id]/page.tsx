@@ -12,11 +12,12 @@ export default async function EditProductPage({
   params: Promise<{ companyId: string; id: string }>;
 }) {
   const { companyId, id } = await params;
-  const company = getCompanyOrRedirectToAcmeCatalog(companyId);
+  const company = await getCompanyOrRedirectToAcmeCatalog(companyId);
 
-  const product = getProductDetail(id);
+  const product = await getProductDetail(id);
   if (!product || product.companyId !== companyId) {
-    const byName = listProducts(companyId).find((p) => p.name === product?.name);
+    const products = await listProducts(companyId);
+    const byName = products.find((p) => p.name === product?.name);
     if (byName) {
       redirect(`/companies/${companyId}/catalog/${byName.id}`);
     }

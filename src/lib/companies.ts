@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { getDb } from "./db";
+import { execute, queryAll, queryOne } from "./db";
 
 export interface Company {
   id: string;
@@ -7,30 +7,24 @@ export interface Company {
   createdAt: string;
 }
 
-export function listCompanies(): Company[] {
-  const db = getDb();
-  return db
-    .prepare(
-      `SELECT id, name, created_at as createdAt FROM companies ORDER BY name ASC`
-    )
-    .all() as Company[];
-}
-
-export function getCompany(companyId: string): Company | null {
-  const db = getDb();
-  return (
-    (db
-      .prepare(`SELECT id, name, created_at as createdAt FROM companies WHERE id = ?`)
-      .get(companyId) as Company | undefined) ?? null
+export async function listCompanies(): Promise<Company[]> {
+  return queryAll<Company>(
+    `SELECT id, name, created_at as createdAt FROM companies ORDER BY name ASC`
   );
 }
 
-export function createCompany(name: string, id?: string): string {
-  const db = getDb();
+export async function getCompany(companyId: string): Promise<Company | null> {
+  return queryOne<Company>(
+    `SELECT id, name, created_at as createdAt FROM companies WHERE id = ?`,
+    [companyId]
+  );
+}
+
+export async function createCompany(name: string, id?: string): Promise<string> {
   const companyId = id ?? randomUUID();
-  db.prepare(`INSERT INTO companies (id, name) VALUES (?, ?)`).run(
+  await execute(`INSERT INTO companies (id, name) VALUES (?, ?)`, [
     companyId,
-    name.trim()
-  );
+    name.trim(),
+  ]);
   return companyId;
 }

@@ -7,9 +7,9 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  ensureAcmeCompany();
+  await ensureAcmeCompany();
   const { id } = await params;
-  const product = getProductDetail(id);
+  const product = await getProductDetail(id);
   if (!product) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -20,10 +20,10 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  ensureAcmeCompany();
+  await ensureAcmeCompany();
   const { id } = await params;
   const body = (await request.json()) as CreateProductInput;
-  const existing = getProductDetail(id);
+  const existing = await getProductDetail(id);
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -33,7 +33,7 @@ export async function PUT(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
   }
-  updateProduct(id, body);
+  await updateProduct(id, body);
   return NextResponse.json({ id });
 }
 
@@ -46,7 +46,7 @@ export async function DELETE(
   if (!companyId) {
     return NextResponse.json({ error: "companyId is required" }, { status: 400 });
   }
-  const ok = deleteProduct(id, companyId);
+  const ok = await deleteProduct(id, companyId);
   if (!ok) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

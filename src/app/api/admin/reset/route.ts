@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { resetAllData } from "@/lib/reset";
 
 export async function POST() {
-  const { companyId, productId } = resetAllData();
+  const { companyId, productId } = await resetAllData();
   revalidatePath("/", "layout");
   revalidatePath(`/companies/${companyId}/catalog`);
   if (productId) {

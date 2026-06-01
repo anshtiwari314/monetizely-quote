@@ -9,7 +9,7 @@ export default async function NewProductPage({
   params: Promise<{ companyId: string }>;
 }) {
   const { companyId } = await params;
-  const company = getCompany(companyId);
+  const company = await getCompany(companyId);
   if (!company) notFound();
 
   return (

@@ -12,12 +12,12 @@ export default async function CompanyCatalogPage({
   params: Promise<{ companyId: string }>;
 }) {
   const { companyId } = await params;
-  const company = getCompanyOrRedirectToAcmeCatalog(companyId);
+  const company = await getCompanyOrRedirectToAcmeCatalog(companyId);
 
   if (company.name === DEFAULT_COMPANY_NAME) {
-    ensureAcmeCompany();
+    await ensureAcmeCompany();
   }
-  const products = listProducts(companyId);
+  const products = await listProducts(companyId);
 
   return (
     <div className="space-y-6">

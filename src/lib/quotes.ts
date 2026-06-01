@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import { getProductDetail } from "./catalog";
-import { columnExists, getDb } from "./db";
+import { batch, columnExists, execute, queryAll, queryOne } from "./db";
 import { buildQuoteBreakdown } from "./pricing";
+import type { ProductDetail } from "./types";
 import type { QuoteInput, QuoteRecord } from "./types";
 
 function addMonthsIso(date: Date, months: number): string {
@@ -27,7 +28,7 @@ function tierNameFromBreakdown(breakdownJson: string): string | null {
 
 /** Map a quote to a current catalog tier when the saved tier id was replaced (catalog re-save). */
 export function resolveQuoteTierId(
-  product: NonNullable<ReturnType<typeof getProductDetail>>,
+  product: ProductDetail,
   savedTierId: string,
   savedTierName: string
 ): string {
@@ -38,119 +39,127 @@ export function resolveQuoteTierId(
   return byName?.id ?? product.tiers[0]?.id ?? savedTierId;
 }
 
-function persistQuote(
+async function persistQuote(
   quoteId: string,
   input: QuoteInput,
   breakdown: ReturnType<typeof buildQuoteBreakdown>,
   featureNames: Record<string, string>,
   options: { createdAt: string; validUntil: string; isNew: boolean }
-): void {
-  const db = getDb();
-  const hasLegacyCustomerName = columnExists(db, "quotes", "customer_name");
-  const tx = db.transaction(() => {
-    if (options.isNew) {
-      if (hasLegacyCustomerName) {
-        db.prepare(
-          `INSERT INTO quotes (
-            id, name, client_name, customer_name, company_id, product_id, tier_id, seats,
-            term_length, discount_percent, breakdown_json, created_at, valid_until
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          quoteId,
-          input.name,
-          input.clientName,
-          input.clientName,
-          input.companyId,
-          input.productId,
-          input.tierId,
-          input.seats,
-          input.termLength,
-          input.discountPercent ?? 0,
-          JSON.stringify(breakdown),
-          options.createdAt,
-          options.validUntil
-        );
-      } else {
-        db.prepare(
-          `INSERT INTO quotes (
-            id, name, client_name, company_id, product_id, tier_id, seats, term_length,
-            discount_percent, breakdown_json, created_at, valid_until
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          quoteId,
-          input.name,
-          input.clientName,
-          input.companyId,
-          input.productId,
-          input.tierId,
-          input.seats,
-          input.termLength,
-          input.discountPercent ?? 0,
-          JSON.stringify(breakdown),
-          options.createdAt,
-          options.validUntil
-        );
-      }
-    } else {
-      if (hasLegacyCustomerName) {
-        db.prepare(
-          `UPDATE quotes SET
-            name = ?, client_name = ?, customer_name = ?, product_id = ?, tier_id = ?, seats = ?,
-            term_length = ?, discount_percent = ?, breakdown_json = ?, valid_until = ?
-           WHERE id = ?`
-        ).run(
-          input.name,
-          input.clientName,
-          input.clientName,
-          input.productId,
-          input.tierId,
-          input.seats,
-          input.termLength,
-          input.discountPercent ?? 0,
-          JSON.stringify(breakdown),
-          options.validUntil,
-          quoteId
-        );
-      } else {
-        db.prepare(
-          `UPDATE quotes SET
-            name = ?, client_name = ?, product_id = ?, tier_id = ?, seats = ?,
-            term_length = ?, discount_percent = ?, breakdown_json = ?, valid_until = ?
-           WHERE id = ?`
-        ).run(
-          input.name,
-          input.clientName,
-          input.productId,
-          input.tierId,
-          input.seats,
-          input.termLength,
-          input.discountPercent ?? 0,
-          JSON.stringify(breakdown),
-          options.validUntil,
-          quoteId
-        );
-      }
-      db.prepare("DELETE FROM quote_addons WHERE quote_id = ?").run(quoteId);
-    }
+): Promise<void> {
+  const hasLegacyCustomerName = await columnExists("quotes", "customer_name");
+  const statements: { sql: string; args: (string | number | null)[] }[] = [];
 
-    for (const addon of input.addons) {
-      db.prepare(
-        `INSERT INTO quote_addons (quote_id, feature_id, feature_name, addon_seats, addon_percent)
-         VALUES (?, ?, ?, ?, ?)`
-      ).run(
+  if (options.isNew) {
+    if (hasLegacyCustomerName) {
+      statements.push({
+        sql: `INSERT INTO quotes (
+          id, name, client_name, customer_name, company_id, product_id, tier_id, seats,
+          term_length, discount_percent, breakdown_json, created_at, valid_until
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          quoteId,
+          input.name,
+          input.clientName,
+          input.clientName,
+          input.companyId,
+          input.productId,
+          input.tierId,
+          input.seats,
+          input.termLength,
+          input.discountPercent ?? 0,
+          JSON.stringify(breakdown),
+          options.createdAt,
+          options.validUntil,
+        ],
+      });
+    } else {
+      statements.push({
+        sql: `INSERT INTO quotes (
+          id, name, client_name, company_id, product_id, tier_id, seats, term_length,
+          discount_percent, breakdown_json, created_at, valid_until
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          quoteId,
+          input.name,
+          input.clientName,
+          input.companyId,
+          input.productId,
+          input.tierId,
+          input.seats,
+          input.termLength,
+          input.discountPercent ?? 0,
+          JSON.stringify(breakdown),
+          options.createdAt,
+          options.validUntil,
+        ],
+      });
+    }
+  } else {
+    if (hasLegacyCustomerName) {
+      statements.push({
+        sql: `UPDATE quotes SET
+          name = ?, client_name = ?, customer_name = ?, product_id = ?, tier_id = ?, seats = ?,
+          term_length = ?, discount_percent = ?, breakdown_json = ?, valid_until = ?
+         WHERE id = ?`,
+        args: [
+          input.name,
+          input.clientName,
+          input.clientName,
+          input.productId,
+          input.tierId,
+          input.seats,
+          input.termLength,
+          input.discountPercent ?? 0,
+          JSON.stringify(breakdown),
+          options.validUntil,
+          quoteId,
+        ],
+      });
+    } else {
+      statements.push({
+        sql: `UPDATE quotes SET
+          name = ?, client_name = ?, product_id = ?, tier_id = ?, seats = ?,
+          term_length = ?, discount_percent = ?, breakdown_json = ?, valid_until = ?
+         WHERE id = ?`,
+        args: [
+          input.name,
+          input.clientName,
+          input.productId,
+          input.tierId,
+          input.seats,
+          input.termLength,
+          input.discountPercent ?? 0,
+          JSON.stringify(breakdown),
+          options.validUntil,
+          quoteId,
+        ],
+      });
+    }
+    statements.push({
+      sql: "DELETE FROM quote_addons WHERE quote_id = ?",
+      args: [quoteId],
+    });
+  }
+
+  for (const addon of input.addons) {
+    statements.push({
+      sql: `INSERT INTO quote_addons (quote_id, feature_id, feature_name, addon_seats, addon_percent)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [
         quoteId,
         addon.featureId,
         featureNames[addon.featureId] ?? addon.featureId,
         addon.addonSeats ?? null,
-        addon.percentValue ?? null
-      );
-    }
-  });
-  tx();
+        addon.percentValue ?? null,
+      ],
+    });
+  }
+
+  await batch(statements);
 }
 
-function computeQuotePayload(input: QuoteInput) {
-  const detail = getProductDetail(input.productId);
+async function computeQuotePayload(input: QuoteInput) {
+  const detail = await getProductDetail(input.productId);
   if (!detail) throw new Error("Product not found");
   if (detail.companyId !== input.companyId) {
     throw new Error("Product does not belong to this company");
@@ -183,13 +192,13 @@ function computeQuotePayload(input: QuoteInput) {
   return { breakdown, featureNames };
 }
 
-export function createQuote(input: QuoteInput): string {
-  const { breakdown, featureNames } = computeQuotePayload(input);
+export async function createQuote(input: QuoteInput): Promise<string> {
+  const { breakdown, featureNames } = await computeQuotePayload(input);
   const quoteId = randomUUID();
   const createdAt = new Date().toISOString();
   const validUntil = addMonthsIso(new Date(), 1);
 
-  persistQuote(quoteId, input, breakdown, featureNames, {
+  await persistQuote(quoteId, input, breakdown, featureNames, {
     createdAt,
     validUntil,
     isNew: true,
@@ -197,53 +206,49 @@ export function createQuote(input: QuoteInput): string {
   return quoteId;
 }
 
-export function updateQuote(quoteId: string, input: QuoteInput): void {
-  const existing = getQuote(quoteId);
+export async function updateQuote(quoteId: string, input: QuoteInput): Promise<void> {
+  const existing = await getQuote(quoteId);
   if (!existing) throw new Error("Quote not found");
   if (existing.companyId !== input.companyId) {
     throw new Error("Quote does not belong to this company");
   }
 
-  const { breakdown, featureNames } = computeQuotePayload(input);
-  persistQuote(quoteId, input, breakdown, featureNames, {
+  const { breakdown, featureNames } = await computeQuotePayload(input);
+  await persistQuote(quoteId, input, breakdown, featureNames, {
     createdAt: existing.createdAt,
     validUntil: addMonthsIso(new Date(), 1),
     isNew: false,
   });
 }
 
-export function getQuote(quoteId: string): QuoteRecord | null {
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT q.id, q.name, ${CLIENT_NAME_SQL} as clientName, q.company_id as companyId,
-              q.product_id as productId, p.name as productName, q.tier_id as tierId,
-              t.name as tierName, q.seats, q.term_length as termLength,
-              q.discount_percent as discountPercent, q.breakdown_json as breakdownJson,
-              q.created_at as createdAt, q.valid_until as validUntil
-       FROM quotes q
-       LEFT JOIN products p ON p.id = q.product_id
-       LEFT JOIN tiers t ON t.id = q.tier_id
-       WHERE q.id = ?`
-    )
-    .get(quoteId) as
-    | {
-        id: string;
-        name: string;
-        clientName: string;
-        companyId: string;
-        productId: string;
-        productName: string;
-        tierId: string;
-        tierName: string;
-        seats: number;
-        termLength: QuoteRecord["termLength"];
-        discountPercent: number;
-        breakdownJson: string;
-        createdAt: string;
-        validUntil: string;
-      }
-    | undefined;
+export async function getQuote(quoteId: string): Promise<QuoteRecord | null> {
+  const row = await queryOne<{
+    id: string;
+    name: string;
+    clientName: string;
+    companyId: string;
+    productId: string;
+    productName: string;
+    tierId: string;
+    tierName: string;
+    seats: number;
+    termLength: QuoteRecord["termLength"];
+    discountPercent: number;
+    breakdownJson: string;
+    createdAt: string;
+    validUntil: string;
+  }>(
+    `SELECT q.id, q.name, ${CLIENT_NAME_SQL} as clientName, q.company_id as companyId,
+            q.product_id as productId, p.name as productName, q.tier_id as tierId,
+            t.name as tierName, q.seats, q.term_length as termLength,
+            q.discount_percent as discountPercent, q.breakdown_json as breakdownJson,
+            q.created_at as createdAt, q.valid_until as validUntil
+     FROM quotes q
+     LEFT JOIN products p ON p.id = q.product_id
+     LEFT JOIN tiers t ON t.id = q.tier_id
+     WHERE q.id = ?`,
+    [quoteId]
+  );
 
   if (!row) return null;
 
@@ -252,13 +257,12 @@ export function getQuote(quoteId: string): QuoteRecord | null {
     tierNameFromBreakdown(row.breakdownJson) ??
     "Unknown tier";
 
-  const selectedAddons = db
-    .prepare(
-      `SELECT feature_id as featureId, feature_name as featureName,
-              addon_seats as addonSeats, addon_percent as addonPercent
-       FROM quote_addons WHERE quote_id = ?`
-    )
-    .all(quoteId) as QuoteRecord["selectedAddons"];
+  const selectedAddons = await queryAll<QuoteRecord["selectedAddons"][number]>(
+    `SELECT feature_id as featureId, feature_name as featureName,
+            addon_seats as addonSeats, addon_percent as addonPercent
+     FROM quote_addons WHERE quote_id = ?`,
+    [quoteId]
+  );
 
   return {
     id: row.id,
@@ -287,23 +291,21 @@ export interface QuoteListItem {
   total: number;
 }
 
-export function listQuotes(companyId: string): QuoteListItem[] {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT id, name, ${CLIENT_NAME_SQL} as clientName, created_at as createdAt,
-              breakdown_json as breakdownJson
-       FROM quotes q
-       WHERE company_id = ?
-       ORDER BY created_at DESC`
-    )
-    .all(companyId) as {
+export async function listQuotes(companyId: string): Promise<QuoteListItem[]> {
+  const rows = await queryAll<{
     id: string;
     name: string;
     clientName: string;
     createdAt: string;
     breakdownJson: string;
-  }[];
+  }>(
+    `SELECT id, name, ${CLIENT_NAME_SQL} as clientName, created_at as createdAt,
+            breakdown_json as breakdownJson
+     FROM quotes q
+     WHERE company_id = ?
+     ORDER BY created_at DESC`,
+    [companyId]
+  );
 
   return rows.map((r) => ({
     id: r.id,
@@ -314,10 +316,13 @@ export function listQuotes(companyId: string): QuoteListItem[] {
   }));
 }
 
-export function deleteQuote(quoteId: string, companyId: string): boolean {
-  const db = getDb();
-  const result = db
-    .prepare(`DELETE FROM quotes WHERE id = ? AND company_id = ?`)
-    .run(quoteId, companyId);
-  return result.changes > 0;
+export async function deleteQuote(
+  quoteId: string,
+  companyId: string
+): Promise<boolean> {
+  const changes = await execute(
+    `DELETE FROM quotes WHERE id = ? AND company_id = ?`,
+    [quoteId, companyId]
+  );
+  return changes > 0;
 }

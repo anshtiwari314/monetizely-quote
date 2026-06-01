@@ -1,38 +1,44 @@
-import Database from "better-sqlite3";
-import fs from "fs";
-import path from "path";
+import { createClient, type Client } from "@libsql/client";
 
-const globalForDb = globalThis as unknown as { sqlite?: Database.Database };
+const globalForDb = globalThis as unknown as { libsql?: Client; schemaReady?: Promise<void> };
 
-function resolveDbPath(): string {
-  const configured = process.env.DATABASE_PATH;
-  if (configured) return configured;
-  if (process.env.VERCEL) {
-    return "/tmp/monetizely.db";
+function createClientFromEnv(): Client {
+  const tursoUrl = process.env.TURSO_DATABASE_URL;
+  if (tursoUrl) {
+    return createClient({
+      url: tursoUrl,
+      authToken: process.env.TURSO_AUTH_TOKEN,
+    });
   }
-  const dataDir = path.join(process.cwd(), "data");
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+  const path = process.env.DATABASE_PATH ?? "./data/monetizely.db";
+  const url = path.startsWith("file:") ? path : `file:${path}`;
+  return createClient({ url });
+}
+
+export function getClient(): Client {
+  if (!globalForDb.libsql) {
+    globalForDb.libsql = createClientFromEnv();
   }
-  return path.join(dataDir, "monetizely.db");
+  return globalForDb.libsql;
 }
 
-function tableExists(db: Database.Database, table: string): boolean {
-  const row = db
-    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
-    .get(table);
-  return row != null;
+async function tableExists(table: string): Promise<boolean> {
+  const result = await getClient().execute({
+    sql: `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    args: [table],
+  });
+  return result.rows.length > 0;
 }
 
-export function columnExists(db: Database.Database, table: string, column: string): boolean {
-  if (!tableExists(db, table)) return false;
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  return cols.some((c) => c.name === column);
+export async function columnExists(table: string, column: string): Promise<boolean> {
+  if (!(await tableExists(table))) return false;
+  const result = await getClient().execute({ sql: `PRAGMA table_info(${table})` });
+  return result.rows.some((r) => String(r.name) === column);
 }
 
-/** Idempotent upgrades for databases created before companies / client_name existed. */
-export function runMigrations(db: Database.Database): void {
-  db.exec(`
+async function runMigrations(): Promise<void> {
+  const client = getClient();
+  await client.execute(`
     CREATE TABLE IF NOT EXISTS companies (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
@@ -40,50 +46,63 @@ export function runMigrations(db: Database.Database): void {
     );
   `);
 
-  if (tableExists(db, "products") && !columnExists(db, "products", "company_id")) {
-    db.exec(`ALTER TABLE products ADD COLUMN company_id TEXT REFERENCES companies(id)`);
+  if ((await tableExists("products")) && !(await columnExists("products", "company_id"))) {
+    await client.execute(`ALTER TABLE products ADD COLUMN company_id TEXT REFERENCES companies(id)`);
   }
-  if (tableExists(db, "quotes") && !columnExists(db, "quotes", "company_id")) {
-    db.exec(`ALTER TABLE quotes ADD COLUMN company_id TEXT REFERENCES companies(id)`);
+  if ((await tableExists("quotes")) && !(await columnExists("quotes", "company_id"))) {
+    await client.execute(`ALTER TABLE quotes ADD COLUMN company_id TEXT REFERENCES companies(id)`);
   }
-  if (tableExists(db, "quotes") && !columnExists(db, "quotes", "client_name")) {
-    db.exec(`ALTER TABLE quotes ADD COLUMN client_name TEXT`);
-    if (columnExists(db, "quotes", "customer_name")) {
-      db.exec(`UPDATE quotes SET client_name = customer_name WHERE client_name IS NULL`);
+  if ((await tableExists("quotes")) && !(await columnExists("quotes", "client_name"))) {
+    await client.execute(`ALTER TABLE quotes ADD COLUMN client_name TEXT`);
+    if (await columnExists("quotes", "customer_name")) {
+      await client.execute(
+        `UPDATE quotes SET client_name = customer_name WHERE client_name IS NULL`
+      );
     }
   }
   if (
-    tableExists(db, "quotes") &&
-    columnExists(db, "quotes", "customer_name") &&
-    columnExists(db, "quotes", "client_name")
+    (await tableExists("quotes")) &&
+    (await columnExists("quotes", "customer_name")) &&
+    (await columnExists("quotes", "client_name"))
   ) {
-    db.exec(
+    await client.execute(
       `UPDATE quotes SET customer_name = client_name WHERE client_name IS NOT NULL AND (customer_name IS NULL OR customer_name = '')`
     );
-    db.exec(
+    await client.execute(
       `UPDATE quotes SET client_name = customer_name WHERE client_name IS NULL AND customer_name IS NOT NULL`
     );
   }
-  if (tableExists(db, "quote_addons") && !columnExists(db, "quote_addons", "addon_percent")) {
-    db.exec(`ALTER TABLE quote_addons ADD COLUMN addon_percent REAL`);
+  if (
+    (await tableExists("quote_addons")) &&
+    !(await columnExists("quote_addons", "addon_percent"))
+  ) {
+    await client.execute(`ALTER TABLE quote_addons ADD COLUMN addon_percent REAL`);
   }
 }
 
-function initSchema(db: Database.Database): void {
-  db.exec(`
+async function initSchema(): Promise<void> {
+  const client = getClient();
+  await client.batch(
+    [
+      {
+        sql: `
     CREATE TABLE IF NOT EXISTS companies (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
+    );`,
+      },
+      {
+        sql: `
     CREATE TABLE IF NOT EXISTS products (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       company_id TEXT REFERENCES companies(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
+    );`,
+      },
+      {
+        sql: `
     CREATE TABLE IF NOT EXISTS tiers (
       id TEXT PRIMARY KEY,
       product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -91,30 +110,38 @@ function initSchema(db: Database.Database): void {
       base_price_per_seat REAL NOT NULL,
       notes TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0
-    );
-
+    );`,
+      },
+      {
+        sql: `
     CREATE TABLE IF NOT EXISTS features (
       id TEXT PRIMARY KEY,
       product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0
-    );
-
+    );`,
+      },
+      {
+        sql: `
     CREATE TABLE IF NOT EXISTS feature_tier_availability (
       feature_id TEXT NOT NULL REFERENCES features(id) ON DELETE CASCADE,
       tier_id TEXT NOT NULL REFERENCES tiers(id) ON DELETE CASCADE,
       availability TEXT NOT NULL CHECK (availability IN ('included', 'addon', 'not_available')),
       PRIMARY KEY (feature_id, tier_id)
-    );
-
+    );`,
+      },
+      {
+        sql: `
     CREATE TABLE IF NOT EXISTS addon_pricing (
       feature_id TEXT NOT NULL REFERENCES features(id) ON DELETE CASCADE,
       tier_id TEXT NOT NULL REFERENCES tiers(id) ON DELETE CASCADE,
       pricing_model TEXT NOT NULL CHECK (pricing_model IN ('fixed', 'per_seat', 'percent')),
       value REAL NOT NULL,
       PRIMARY KEY (feature_id, tier_id)
-    );
-
+    );`,
+      },
+      {
+        sql: `
     CREATE TABLE IF NOT EXISTS quotes (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -128,8 +155,10 @@ function initSchema(db: Database.Database): void {
       breakdown_json TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       valid_until TEXT NOT NULL
-    );
-
+    );`,
+      },
+      {
+        sql: `
     CREATE TABLE IF NOT EXISTS quote_addons (
       quote_id TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
       feature_id TEXT NOT NULL,
@@ -137,30 +166,55 @@ function initSchema(db: Database.Database): void {
       addon_seats INTEGER,
       addon_percent REAL,
       PRIMARY KEY (quote_id, feature_id)
-    );
-  `);
-
-  runMigrations(db);
+    );`,
+      },
+    ],
+    "write"
+  );
+  await runMigrations();
 }
 
-function createDb(): Database.Database {
-  const dbPath = resolveDbPath();
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  initSchema(db);
-  return db;
-}
-
-export function getDb(): Database.Database {
-  if (!globalForDb.sqlite) {
-    globalForDb.sqlite = createDb();
-    // Seed on every new connection (each Vercel serverless instance has its own /tmp DB).
-    const { ensureAcmeCompany } = require("./seed") as typeof import("./seed");
-    ensureAcmeCompany();
-  } else {
-    // Re-run after hot reload so older cached connections pick up new tables/columns.
-    runMigrations(globalForDb.sqlite);
+export async function ensureSchema(): Promise<void> {
+  if (!globalForDb.schemaReady) {
+    globalForDb.schemaReady = initSchema();
   }
-  return globalForDb.sqlite;
+  await globalForDb.schemaReady;
+}
+
+export type SqlArgs = (string | number | null | bigint)[];
+
+export async function queryAll<T>(sql: string, args: SqlArgs = []): Promise<T[]> {
+  await ensureSchema();
+  const result = await getClient().execute({ sql, args });
+  return result.rows.map((row) => {
+    const obj: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      obj[key] =
+        typeof value === "bigint"
+          ? Number(value)
+          : value;
+    }
+    return obj as T;
+  });
+}
+
+export async function queryOne<T>(sql: string, args: SqlArgs = []): Promise<T | null> {
+  const rows = await queryAll<T>(sql, args);
+  return rows[0] ?? null;
+}
+
+export async function execute(sql: string, args: SqlArgs = []): Promise<number> {
+  await ensureSchema();
+  const result = await getClient().execute({ sql, args });
+  return result.rowsAffected;
+}
+
+export async function batch(
+  statements: { sql: string; args?: SqlArgs }[]
+): Promise<void> {
+  await ensureSchema();
+  await getClient().batch(
+    statements.map((s) => ({ sql: s.sql, args: s.args ?? [] })),
+    "write"
+  );
 }

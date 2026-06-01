@@ -12,13 +12,13 @@ export default async function NewQuotePage({
   params: Promise<{ companyId: string }>;
 }) {
   const { companyId } = await params;
-  const company = getCompany(companyId);
+  const company = await getCompany(companyId);
   if (!company) notFound();
 
-  const products = listProducts(companyId);
-  const productDetails = products
-    .map((p) => getProductDetail(p.id))
-    .filter((p): p is NonNullable<typeof p> => p !== null);
+  const products = await listProducts(companyId);
+  const productDetails = (
+    await Promise.all(products.map((p) => getProductDetail(p.id)))
+  ).filter((p): p is NonNullable<typeof p> => p !== null);
 
   if (products.length === 0) {
     return (

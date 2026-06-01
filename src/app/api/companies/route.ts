@@ -3,8 +3,8 @@ import { createCompany, listCompanies } from "@/lib/companies";
 import { ensureAcmeCompany } from "@/lib/seed";
 
 export async function GET() {
-  ensureAcmeCompany();
-  return NextResponse.json(listCompanies());
+  await ensureAcmeCompany();
+  return NextResponse.json(await listCompanies());
 }
 
 export async function POST(request: Request) {
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Company name is required" }, { status: 400 });
   }
   try {
-    const id = createCompany(body.name);
+    const id = await createCompany(body.name);
     return NextResponse.json({ id }, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Company name already exists" }, { status: 400 });

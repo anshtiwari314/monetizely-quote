@@ -12,10 +12,10 @@ export default async function CompanyQuotesPage({
   params: Promise<{ companyId: string }>;
 }) {
   const { companyId } = await params;
-  const company = getCompany(companyId);
+  const company = await getCompany(companyId);
   if (!company) notFound();
 
-  const quotes = listQuotes(companyId);
+  const quotes = await listQuotes(companyId);
 
   return (
     <div className="space-y-6">

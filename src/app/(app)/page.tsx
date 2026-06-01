@@ -4,9 +4,9 @@ import { CompanyHome } from "@/components/CompanyHome";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
-  ensureAcmeCompany();
-  const companies = listCompanies();
+export default async function Home() {
+  await ensureAcmeCompany();
+  const companies = await listCompanies();
 
   return <CompanyHome companies={companies} />;
 }

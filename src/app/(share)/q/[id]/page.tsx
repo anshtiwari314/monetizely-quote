@@ -10,7 +10,7 @@ export default async function ShareableQuotePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const quote = getQuote(id);
+  const quote = await getQuote(id);
   if (!quote) notFound();
 
   return <QuoteView quote={quote} />;

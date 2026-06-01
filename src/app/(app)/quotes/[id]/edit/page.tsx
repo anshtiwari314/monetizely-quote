@@ -12,15 +12,15 @@ export default async function EditQuotePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const quote = getQuote(id);
+  const quote = await getQuote(id);
   if (!quote) notFound();
 
   if (!quote.companyId) notFound();
 
-  const products = listProducts(quote.companyId);
-  const productDetails = products
-    .map((p) => getProductDetail(p.id))
-    .filter((p): p is NonNullable<typeof p> => p !== null);
+  const products = await listProducts(quote.companyId);
+  const productDetails = (
+    await Promise.all(products.map((p) => getProductDetail(p.id)))
+  ).filter((p): p is NonNullable<typeof p> => p !== null);
 
   const product = productDetails.find((p) => p.id === quote.productId);
   const resolvedTierId = product
