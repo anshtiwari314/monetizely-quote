@@ -3,6 +3,8 @@ import { createClient, type Client } from "@libsql/client";
 const globalForDb = globalThis as unknown as { libsql?: Client; schemaReady?: Promise<void> };
 
 function createClientFromEnv(): Client {
+  console.log("TURSO_DATABASE_URL:", process.env.TURSO_DATABASE_URL);
+  console.log("TURSO_AUTH_TOKEN:", process.env.TURSO_AUTH_TOKEN);
   const tursoUrl = process.env.TURSO_DATABASE_URL;
   if (tursoUrl) {
     return createClient({
