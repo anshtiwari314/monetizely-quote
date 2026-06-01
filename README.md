@@ -1,11 +1,6 @@
 # Monetizely Quote Tool
 
-A lightweight SaaS quoting application: define product catalogs (tiers, features, add-on pricing) and build shareable quotes with transparent line-item math.
-
-## Tech stack
-
-- **Next.js** (App Router) + TypeScript + Tailwind CSS
-- **better-sqlite3** — file-based SQLite, no external database service
+Next.js + TypeScript + SQLite (`better-sqlite3`). Each company has its own catalogue and quotes. Client share link: `/q/[id]` (no app header).
 
 ## Run locally
 
@@ -15,72 +10,39 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). On first load, the sample **Analytics Suite** catalog (from the exercise Excel reference) is seeded automatically.
-
-The database file is created at `data/monetizely.db`. Override the path with:
+Open http://localhost:3000. Default company **ACME** is created with sample **Analytics Suite** catalogue. Use **Reset all data** on the home page to start fresh.
 
 ```bash
-DATABASE_PATH=./data/my.db npm run dev
+npm test          # pricing unit tests
+npm run test:e2e  # catalogue → quote → share URL
+npm run build && npm start
 ```
 
-### Tests
+Database: `data/monetizely.db` (set `DATABASE_PATH` to override).
 
-```bash
-npm test              # unit tests (pricing math)
-npm run test:e2e      # Playwright E2E (starts dev server)
-```
+## Deploy on Vercel
 
-### Production build
+1. Import the `monetizely-quote` folder as the project root.
+2. Framework preset: **Next.js** (default).
+3. Optional env: `DATABASE_PATH=/tmp/monetizely.db` (auto-used on Vercel if unset).
+4. Deploy.
 
-```bash
-npm run build
-npm start
-```
-
-## Features
-
-| Area | What it does |
-|------|----------------|
-| **Catalog** (`/catalog`) | Create/edit products, tiers, feature matrix, add-on pricing |
-| **New quote** (`/quotes/new`) | Pick product/tier/seats/term, select add-ons, optional % discount |
-| **Shareable quote** (`/q/[id]`) | Read-only quote view — no login |
-
-### Pricing rules (implemented)
-
-- **Term discounts** (all products): Monthly 0%, Annual 15%, Two-year 25% on per-seat base price
-- **Add-on models**: Fixed monthly, per-seat/month (independent seat count), % of product line amount
-- **Quote discount**: Percentage applied to subtotal after line items
+**Note:** Serverless storage is ephemeral — data may reset on cold starts. Fine for demos; use Turso/Neon or a persistent host for production.
 
 ## Assumptions
 
-1. **Percent-of-product add-ons** use the tier’s discounted product line total (seats × base × months × term discount), not pre-discount list price.
-2. **Quote discount** applies to the sum of all positive line items; shown as a separate negative line item.
-3. **Valid until** is quote date + 1 calendar month.
-4. **Editing quotes** after save is out of scope (per spec); new quotes only.
-5. **USD only**, no tax.
+- Catalogue and quotes are scoped per company (`company_id`).
+- % add-ons use the discounted product line; quote % discount applies to the full subtotal.
+- Per-seat add-on seats are independent of product seats.
+- % add-ons can be adjusted when building a quote (catalogue default applies).
+- USD only, no tax. Quotes can be edited after save.
 
 ## Decisions
 
-| Choice | Why |
-|--------|-----|
-| **better-sqlite3** | Simple local/dev setup; single file DB; no hosted Postgres required for the exercise |
-| **Seed on first API/page load** | Lets reviewers try the Acme example immediately without a separate migrate step |
-| **`/q/[id]` for shareable URLs** | Short, public-friendly path separate from internal `/quotes` list |
-| **Server Components + API routes** | DB access stays on the server; shareable pages are SSR’d |
+- **SQLite + better-sqlite3** — no external DB service; file at `data/` locally, `/tmp` on Vercel.
+- **ACME sample seed only** for the default company (not every new company).
+- **`/q/[id]`** for clients; `/quotes/...` and `/companies/...` for internal use.
 
-## Vercel deployment note
+## Next
 
-Serverless functions have an **ephemeral filesystem**. For Vercel, set `DATABASE_PATH=/tmp/monetizely.db` in project env vars. Data will reset when the function cold-starts unless you attach persistent storage (e.g. Vercel Blob + restore, or switch to Turso/libSQL later). For a durable demo, running on a small Node host (Railway, Fly.io) with a persistent `data/` volume works out of the box.
-
-## Questions we’d ask Monetizely
-
-1. Should percent-of-product add-ons use pre–term-discount or post–term-discount product cost?
-2. Is quote discount applied before or after add-ons (we applied to full subtotal)?
-3. For two-year terms, do add-ons also multiply by 24 months (we assumed yes)?
-
-## What we’d build next
-
-- Quote preview before save
-- Duplicate catalog product / quote templates
-- Persistent DB on Vercel (Turso or Neon) with migration script
-- PDF export of quote view
+- Quote preview before save, PDF export, persistent hosted database.

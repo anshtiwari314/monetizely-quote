@@ -7,6 +7,9 @@ const globalForDb = globalThis as unknown as { sqlite?: Database.Database };
 function resolveDbPath(): string {
   const configured = process.env.DATABASE_PATH;
   if (configured) return configured;
+  if (process.env.VERCEL) {
+    return "/tmp/monetizely.db";
+  }
   const dataDir = path.join(process.cwd(), "data");
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
