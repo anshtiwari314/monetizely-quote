@@ -198,7 +198,7 @@ export function QuoteBuilder({
           placeholder="Acme Corp - Q3 2026 proposal"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
         />
       </div>
       <div>
@@ -210,7 +210,7 @@ export function QuoteBuilder({
           required
           value={clientName}
           onChange={(e) => setClientName(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
         />
       </div>
       <div>
@@ -221,7 +221,7 @@ export function QuoteBuilder({
           id="quote-product"
           value={productId}
           onChange={(e) => handleProductChange(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
         >
           {productDetails.map((p) => (
             <option key={p.id} value={p.id}>
@@ -242,7 +242,7 @@ export function QuoteBuilder({
             setTierId(e.target.value);
             setSelectedAddons({});
           }}
-          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
         >
           {detail?.tiers.map((t) => (
             <option key={t.id} value={t.id}>
@@ -262,7 +262,7 @@ export function QuoteBuilder({
           min={1}
           value={seats}
           onChange={(e) => setSeats(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
         />
       </div>
       <div>
@@ -273,7 +273,7 @@ export function QuoteBuilder({
           id="quote-term"
           value={termLength}
           onChange={(e) => setTermLength(e.target.value as TermLength)}
-          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
         >
           <option value="monthly">Monthly (no discount)</option>
           <option value="annual">Annual — 15% off per-seat price</option>
@@ -327,7 +327,7 @@ export function QuoteBuilder({
                           },
                         }))
                       }
-                      className="ml-6 w-32 rounded border border-zinc-300 px-2 py-1 text-sm"
+                      className="ml-6 w-32 rounded border border-zinc-300 bg-white px-2 py-1 text-sm text-black"
                     />
                   )}
                 {selectedAddons[feature.id]?.checked &&
@@ -354,7 +354,7 @@ export function QuoteBuilder({
                             },
                           }))
                         }
-                        className="w-20 rounded border border-zinc-300 px-2 py-1 text-sm"
+                        className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-sm text-black"
                       />
                       <span>%</span>
                     </label>
@@ -377,7 +377,7 @@ export function QuoteBuilder({
           step="0.1"
           value={discountPercent}
           onChange={(e) => setDiscountPercent(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+          className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
         />
       </div>
 

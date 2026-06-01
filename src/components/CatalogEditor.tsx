@@ -192,7 +192,7 @@ export function CatalogEditor({
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 px-3 py-2"
+          className="mt-1 w-full max-w-md rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
         />
       </div>
 
@@ -219,7 +219,7 @@ export function CatalogEditor({
                   next[i] = { ...tier, name: e.target.value };
                   setTiers(next);
                 }}
-                className="rounded border border-zinc-300 px-2 py-1"
+                className="rounded border border-zinc-300 bg-white px-2 py-1 text-black"
               />
               <input
                 required
@@ -233,7 +233,7 @@ export function CatalogEditor({
                   next[i] = { ...tier, basePricePerSeat: e.target.value };
                   setTiers(next);
                 }}
-                className="w-36 rounded border border-zinc-300 px-2 py-1"
+                className="w-36 rounded border border-zinc-300 bg-white px-2 py-1 text-black"
               />
               <input
                 placeholder="Notes"
@@ -243,7 +243,7 @@ export function CatalogEditor({
                   next[i] = { ...tier, notes: e.target.value };
                   setTiers(next);
                 }}
-                className="min-w-[12rem] flex-1 rounded border border-zinc-300 px-2 py-1"
+                className="min-w-[12rem] flex-1 rounded border border-zinc-300 bg-white px-2 py-1 text-black"
               />
             </div>
           ))}
@@ -285,7 +285,7 @@ export function CatalogEditor({
                         next[fi] = { name: e.target.value };
                         setFeatures(next);
                       }}
-                      className="w-full min-w-[10rem] rounded border border-zinc-300 px-2 py-1"
+                      className="w-full min-w-[10rem] rounded border border-zinc-300 bg-white px-2 py-1 text-black"
                     />
                   </td>
                   {tiers.map((_, ti) => {
@@ -302,7 +302,7 @@ export function CatalogEditor({
                               e.target.value as FeatureAvailability
                             )
                           }
-                          className="w-full rounded border border-zinc-300 px-1 py-1"
+                          className="w-full rounded border border-zinc-300 bg-white px-1 py-1 text-black"
                         >
                           {AVAILABILITY_OPTIONS.map((o) => (
                             <option key={o.value} value={o.value}>
@@ -323,7 +323,7 @@ export function CatalogEditor({
                                   },
                                 }))
                               }
-                              className="w-full rounded border border-zinc-300 px-1 py-1 text-xs"
+                              className="w-full rounded border border-zinc-300 bg-white px-1 py-1 text-xs text-black"
                             >
                               {PRICING_MODELS.map((m) => (
                                 <option key={m.value} value={m.value}>
@@ -347,7 +347,7 @@ export function CatalogEditor({
                                   },
                                 }))
                               }
-                              className="w-full rounded border border-zinc-300 px-1 py-1 text-xs"
+                              className="w-full rounded border border-zinc-300 bg-white px-1 py-1 text-xs text-black"
                             />
                           </div>
                         )}

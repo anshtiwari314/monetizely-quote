@@ -103,7 +103,7 @@ export function CompanyHome({ companies: initial }: { companies: Company[] }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Company name"
-            className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+            className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
           />
         </div>
         <button
