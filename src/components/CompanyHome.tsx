@@ -78,6 +78,9 @@ export function CompanyHome({ companies: initial }: { companies: Company[] }) {
             Select a company to manage its catalogue or quotes. Each company only
             sees its own data.
           </p>
+          <p className="mt-2 text-sm text-zinc-500">
+            For the best experience, use Google Chrome — this site has been tested on Chrome.
+          </p>
         </div>
         <button
           type="button"

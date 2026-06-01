@@ -2,6 +2,8 @@
 
 Next.js + TypeScript + SQLite (`better-sqlite3`). Each company has its own catalogue and quotes. Client share link: `/q/[id]` (no app header).
 
+**Browser:** Use Google Chrome as your primary browser — this site has been tested on Chrome.
+
 ## Run locally
 
 ```bash
