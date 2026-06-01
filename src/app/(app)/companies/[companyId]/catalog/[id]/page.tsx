@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { getProductDetail } from "@/lib/catalog";
-import { getCompany } from "@/lib/companies";
+import { redirect } from "next/navigation";
+import { getProductDetail, listProducts } from "@/lib/catalog";
+import { getCompanyOrRedirectToAcmeCatalog } from "@/lib/company-routing";
 import { CatalogEditor } from "@/components/CatalogEditor";
 
 export const dynamic = "force-dynamic";
@@ -12,11 +12,16 @@ export default async function EditProductPage({
   params: Promise<{ companyId: string; id: string }>;
 }) {
   const { companyId, id } = await params;
-  const company = getCompany(companyId);
-  if (!company) notFound();
+  const company = getCompanyOrRedirectToAcmeCatalog(companyId);
 
   const product = getProductDetail(id);
-  if (!product || product.companyId !== companyId) notFound();
+  if (!product || product.companyId !== companyId) {
+    const byName = listProducts(companyId).find((p) => p.name === product?.name);
+    if (byName) {
+      redirect(`/companies/${companyId}/catalog/${byName.id}`);
+    }
+    redirect(`/companies/${companyId}/catalog`);
+  }
 
   return (
     <div className="space-y-6">

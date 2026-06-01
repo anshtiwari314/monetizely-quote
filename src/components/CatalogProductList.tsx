@@ -39,6 +39,7 @@ export function CatalogProductList({
         <li key={p.id} className="flex items-center gap-2 px-4 py-3 hover:bg-zinc-50">
           <Link
             href={`/companies/${companyId}/catalog/${p.id}`}
+            prefetch={false}
             className="min-w-0 flex-1 font-medium text-zinc-900"
           >
             {p.name}

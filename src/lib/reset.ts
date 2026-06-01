@@ -1,7 +1,12 @@
 import { getDb } from "./db";
 import { ensureAcmeCompany } from "./seed";
 
-export function resetAllData(): string {
+export interface ResetResult {
+  companyId: string;
+  productId: string | null;
+}
+
+export function resetAllData(): ResetResult {
   const db = getDb();
   const clear = db.transaction(() => {
     db.exec(`DELETE FROM quote_addons`);
@@ -14,5 +19,11 @@ export function resetAllData(): string {
     db.exec(`DELETE FROM companies`);
   });
   clear();
-  return ensureAcmeCompany();
+  const companyId = ensureAcmeCompany();
+  const productRow = db
+    .prepare(
+      `SELECT id FROM products WHERE company_id = ? AND name = 'Analytics Suite' LIMIT 1`
+    )
+    .get(companyId) as { id: string } | undefined;
+  return { companyId, productId: productRow?.id ?? null };
 }

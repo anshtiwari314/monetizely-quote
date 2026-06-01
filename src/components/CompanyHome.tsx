@@ -2,12 +2,21 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Company } from "@/lib/companies";
 
 export function CompanyHome({ companies: initial }: { companies: Company[] }) {
   const router = useRouter();
   const [companies, setCompanies] = useState(initial);
+
+  useEffect(() => {
+    fetch("/api/companies")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: Company[] | null) => {
+        if (data) setCompanies(data);
+      })
+      .catch(() => {});
+  }, []);
   const [name, setName] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,8 +62,11 @@ export function CompanyHome({ companies: initial }: { companies: Company[] }) {
       return;
     }
     setOpenId(null);
-    router.refresh();
-    window.location.href = "/";
+    const data = await res.json();
+    const catalogUrl = data.companyId
+      ? `/companies/${data.companyId}/catalog`
+      : "/";
+    window.location.replace(catalogUrl);
   }
 
   return (

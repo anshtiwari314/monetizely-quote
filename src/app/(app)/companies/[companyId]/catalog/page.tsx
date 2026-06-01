@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { listProducts } from "@/lib/catalog";
-import { getCompany } from "@/lib/companies";
+import { getCompanyOrRedirectToAcmeCatalog } from "@/lib/company-routing";
+import { DEFAULT_COMPANY_NAME, ensureAcmeCompany } from "@/lib/seed";
 import { CatalogProductList } from "@/components/CatalogProductList";
 
 export const dynamic = "force-dynamic";
@@ -12,9 +12,11 @@ export default async function CompanyCatalogPage({
   params: Promise<{ companyId: string }>;
 }) {
   const { companyId } = await params;
-  const company = getCompany(companyId);
-  if (!company) notFound();
+  const company = getCompanyOrRedirectToAcmeCatalog(companyId);
 
+  if (company.name === DEFAULT_COMPANY_NAME) {
+    ensureAcmeCompany();
+  }
   const products = listProducts(companyId);
 
   return (
