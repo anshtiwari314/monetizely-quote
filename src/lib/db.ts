@@ -1,28 +1,17 @@
-import { createClient as createNodeClient, type Client } from "@libsql/client";
-import { createClient as createWebClient } from "@libsql/client/web";
+import { MongoClient, type Collection, type Db } from "mongodb";
 
-const globalForDb = globalThis as unknown as { libsql?: Client; schemaReady?: Promise<void> };
+export const DB_NAME = "monetizely";
 
-/** Avoid Next.js patch-fetch + Node 24 crash when Turso returns 4xx/5xx. */
-function tursoFetch(
-  input: RequestInfo | URL,
-  init?: RequestInit
-): Promise<Response> {
-  if (input instanceof Request) {
-    const headers = new Headers(input.headers);
-    if (init?.headers) {
-      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
-    }
-    const method = init?.method ?? input.method;
-    const body = init?.body ?? input.body;
-    return fetch(input.url, { method, headers, body });
-  }
-  return fetch(input, init);
-}
+const globalForMongo = globalThis as unknown as {
+  mongoClient?: MongoClient;
+  mongoDb?: Db;
+  indexesReady?: Promise<void>;
+};
 
 function stripEnvQuotes(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  const trimmed = value.trim();
+  let trimmed = value.trim();
+  if (trimmed.endsWith(";")) trimmed = trimmed.slice(0, -1).trim();
   if (
     (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
     (trimmed.startsWith("'") && trimmed.endsWith("'"))
@@ -32,233 +21,106 @@ function stripEnvQuotes(value: string | undefined): string | undefined {
   return trimmed;
 }
 
-function createClientFromEnv(): Client {
-  const tursoUrl = stripEnvQuotes(process.env.TURSO_DATABASE_URL);
-  const tursoToken = stripEnvQuotes(process.env.TURSO_AUTH_TOKEN);
-
-  if (process.env.VERCEL && !tursoUrl) {
+function resolveMongoUri(): string {
+  const uri =
+    stripEnvQuotes(process.env.MONGODB_ATLAS_URL) ??
+    stripEnvQuotes(process.env.MONGODB_URI) ??
+    stripEnvQuotes(process.env.DATABASE_URL);
+  if (!uri?.startsWith("mongodb")) {
     throw new Error(
-      "TURSO_DATABASE_URL is not set on Vercel. Add it in Project → Settings → Environment Variables, then redeploy."
+      "MongoDB connection string missing. Set MONGODB_ATLAS_URL in .env (see .env.example)."
     );
   }
-  if (tursoUrl && !tursoToken) {
-    throw new Error(
-      "TURSO_AUTH_TOKEN is missing. Run: turso db tokens create <your-db-name>"
-    );
+  return uri;
+}
+
+export async function getDb(): Promise<Db> {
+  if (!globalForMongo.mongoDb) {
+    const client = new MongoClient(resolveMongoUri());
+    await client.connect();
+    globalForMongo.mongoClient = client;
+    globalForMongo.mongoDb = client.db(DB_NAME);
   }
-
-  if (tursoUrl) {
-    return createWebClient({
-      url: tursoUrl,
-      authToken: tursoToken,
-      fetch: tursoFetch,
-    });
+  if (!globalForMongo.indexesReady) {
+    globalForMongo.indexesReady = ensureIndexes(globalForMongo.mongoDb);
   }
-  const path = process.env.DATABASE_PATH ?? "./data/monetizely.db";
-  const url = path.startsWith("file:") ? path : `file:${path}`;
-  return createNodeClient({ url });
+  await globalForMongo.indexesReady;
+  return globalForMongo.mongoDb;
 }
 
-export function getClient(): Client {
-  if (!globalForDb.libsql) {
-    globalForDb.libsql = createClientFromEnv();
-  }
-  return globalForDb.libsql;
+async function ensureIndexes(db: Db): Promise<void> {
+  await db.collection("companies").createIndex({ name: 1 }, { unique: true });
+  await db.collection("products").createIndex({ companyId: 1, createdAt: -1 });
+  await db.collection("quotes").createIndex({ companyId: 1, createdAt: -1 });
 }
 
-async function tableExists(table: string): Promise<boolean> {
-  const result = await getClient().execute({
-    sql: `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
-    args: [table],
-  });
-  return result.rows.length > 0;
+export async function companiesCol(): Promise<Collection<CompanyDoc>> {
+  return (await getDb()).collection<CompanyDoc>("companies");
 }
 
-export async function columnExists(table: string, column: string): Promise<boolean> {
-  if (!(await tableExists(table))) return false;
-  const result = await getClient().execute({ sql: `PRAGMA table_info(${table})` });
-  return result.rows.some((r) => String(r.name) === column);
+export async function productsCol(): Promise<Collection<ProductDoc>> {
+  return (await getDb()).collection<ProductDoc>("products");
 }
 
-async function runMigrations(): Promise<void> {
-  const client = getClient();
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS companies (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `);
-
-  if ((await tableExists("products")) && !(await columnExists("products", "company_id"))) {
-    await client.execute(`ALTER TABLE products ADD COLUMN company_id TEXT REFERENCES companies(id)`);
-  }
-  if ((await tableExists("quotes")) && !(await columnExists("quotes", "company_id"))) {
-    await client.execute(`ALTER TABLE quotes ADD COLUMN company_id TEXT REFERENCES companies(id)`);
-  }
-  if ((await tableExists("quotes")) && !(await columnExists("quotes", "client_name"))) {
-    await client.execute(`ALTER TABLE quotes ADD COLUMN client_name TEXT`);
-    if (await columnExists("quotes", "customer_name")) {
-      await client.execute(
-        `UPDATE quotes SET client_name = customer_name WHERE client_name IS NULL`
-      );
-    }
-  }
-  if (
-    (await tableExists("quotes")) &&
-    (await columnExists("quotes", "customer_name")) &&
-    (await columnExists("quotes", "client_name"))
-  ) {
-    await client.execute(
-      `UPDATE quotes SET customer_name = client_name WHERE client_name IS NOT NULL AND (customer_name IS NULL OR customer_name = '')`
-    );
-    await client.execute(
-      `UPDATE quotes SET client_name = customer_name WHERE client_name IS NULL AND customer_name IS NOT NULL`
-    );
-  }
-  if (
-    (await tableExists("quote_addons")) &&
-    !(await columnExists("quote_addons", "addon_percent"))
-  ) {
-    await client.execute(`ALTER TABLE quote_addons ADD COLUMN addon_percent REAL`);
-  }
+export async function quotesCol(): Promise<Collection<QuoteDoc>> {
+  return (await getDb()).collection<QuoteDoc>("quotes");
 }
 
-async function initSchema(): Promise<void> {
-  const client = getClient();
-  await client.batch(
-    [
-      {
-        sql: `
-    CREATE TABLE IF NOT EXISTS companies (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );`,
-      },
-      {
-        sql: `
-    CREATE TABLE IF NOT EXISTS products (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      company_id TEXT REFERENCES companies(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );`,
-      },
-      {
-        sql: `
-    CREATE TABLE IF NOT EXISTS tiers (
-      id TEXT PRIMARY KEY,
-      product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      base_price_per_seat REAL NOT NULL,
-      notes TEXT,
-      sort_order INTEGER NOT NULL DEFAULT 0
-    );`,
-      },
-      {
-        sql: `
-    CREATE TABLE IF NOT EXISTS features (
-      id TEXT PRIMARY KEY,
-      product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
-    );`,
-      },
-      {
-        sql: `
-    CREATE TABLE IF NOT EXISTS feature_tier_availability (
-      feature_id TEXT NOT NULL REFERENCES features(id) ON DELETE CASCADE,
-      tier_id TEXT NOT NULL REFERENCES tiers(id) ON DELETE CASCADE,
-      availability TEXT NOT NULL CHECK (availability IN ('included', 'addon', 'not_available')),
-      PRIMARY KEY (feature_id, tier_id)
-    );`,
-      },
-      {
-        sql: `
-    CREATE TABLE IF NOT EXISTS addon_pricing (
-      feature_id TEXT NOT NULL REFERENCES features(id) ON DELETE CASCADE,
-      tier_id TEXT NOT NULL REFERENCES tiers(id) ON DELETE CASCADE,
-      pricing_model TEXT NOT NULL CHECK (pricing_model IN ('fixed', 'per_seat', 'percent')),
-      value REAL NOT NULL,
-      PRIMARY KEY (feature_id, tier_id)
-    );`,
-      },
-      {
-        sql: `
-    CREATE TABLE IF NOT EXISTS quotes (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      client_name TEXT NOT NULL,
-      company_id TEXT REFERENCES companies(id) ON DELETE CASCADE,
-      product_id TEXT NOT NULL,
-      tier_id TEXT NOT NULL,
-      seats INTEGER NOT NULL,
-      term_length TEXT NOT NULL CHECK (term_length IN ('monthly', 'annual', 'two_year')),
-      discount_percent REAL NOT NULL DEFAULT 0,
-      breakdown_json TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      valid_until TEXT NOT NULL
-    );`,
-      },
-      {
-        sql: `
-    CREATE TABLE IF NOT EXISTS quote_addons (
-      quote_id TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
-      feature_id TEXT NOT NULL,
-      feature_name TEXT NOT NULL,
-      addon_seats INTEGER,
-      addon_percent REAL,
-      PRIMARY KEY (quote_id, feature_id)
-    );`,
-      },
-    ],
-    "write"
-  );
-  await runMigrations();
+export interface CompanyDoc {
+  _id: string;
+  name: string;
+  createdAt: string;
 }
 
-export async function ensureSchema(): Promise<void> {
-  if (!globalForDb.schemaReady) {
-    globalForDb.schemaReady = initSchema();
-  }
-  await globalForDb.schemaReady;
+export interface ProductDoc {
+  _id: string;
+  companyId: string;
+  name: string;
+  createdAt: string;
+  tiers: {
+    id: string;
+    productId: string;
+    name: string;
+    basePricePerSeat: number;
+    notes: string | null;
+    sortOrder: number;
+  }[];
+  features: {
+    id: string;
+    productId: string;
+    name: string;
+    sortOrder: number;
+  }[];
+  matrix: {
+    featureId: string;
+    tierId: string;
+    availability: "included" | "addon" | "not_available";
+  }[];
+  addonPricing: {
+    featureId: string;
+    tierId: string;
+    pricingModel: "fixed" | "per_seat" | "percent";
+    value: number;
+  }[];
 }
 
-export type SqlArgs = (string | number | null | bigint)[];
-
-export async function queryAll<T>(sql: string, args: SqlArgs = []): Promise<T[]> {
-  await ensureSchema();
-  const result = await getClient().execute({ sql, args });
-  return result.rows.map((row) => {
-    const obj: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(row)) {
-      obj[key] =
-        typeof value === "bigint"
-          ? Number(value)
-          : value;
-    }
-    return obj as T;
-  });
-}
-
-export async function queryOne<T>(sql: string, args: SqlArgs = []): Promise<T | null> {
-  const rows = await queryAll<T>(sql, args);
-  return rows[0] ?? null;
-}
-
-export async function execute(sql: string, args: SqlArgs = []): Promise<number> {
-  await ensureSchema();
-  const result = await getClient().execute({ sql, args });
-  return result.rowsAffected;
-}
-
-export async function batch(
-  statements: { sql: string; args?: SqlArgs }[]
-): Promise<void> {
-  await ensureSchema();
-  await getClient().batch(
-    statements.map((s) => ({ sql: s.sql, args: s.args ?? [] })),
-    "write"
-  );
+export interface QuoteDoc {
+  _id: string;
+  name: string;
+  clientName: string;
+  companyId: string;
+  productId: string;
+  tierId: string;
+  seats: number;
+  termLength: "monthly" | "annual" | "two_year";
+  discountPercent: number;
+  breakdown: import("./types").QuoteBreakdown;
+  createdAt: string;
+  validUntil: string;
+  addons: {
+    featureId: string;
+    featureName: string;
+    addonSeats: number | null;
+    addonPercent: number | null;
+  }[];
 }

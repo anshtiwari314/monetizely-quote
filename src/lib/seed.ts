@@ -1,17 +1,8 @@
-import { createCompany, getCompany, listCompanies } from "./companies";
-import {
-  createProduct,
-  getProductDetail,
-  listProducts,
-  type CreateProductInput,
-} from "./catalog";
-import { execute } from "./db";
+import { createCompany, listCompanies } from "./companies";
+import { createProduct, listProducts, type CreateProductInput } from "./catalog";
+import { companiesCol, productsCol, quotesCol } from "./db";
 
 export const DEFAULT_COMPANY_NAME = "ACME";
-
-/** Stable IDs so seed data is consistent across environments. */
-export const ACME_COMPANY_ID = "a0000000-0000-4000-8000-000000000001";
-export const ANALYTICS_SUITE_PRODUCT_ID = "a0000000-0000-4000-8000-000000000002";
 
 const analyticsSuiteSeed: CreateProductInput = {
   name: "Analytics Suite",
@@ -71,43 +62,43 @@ const analyticsSuiteSeed: CreateProductInput = {
   ],
 };
 
-export async function seedAcmeCatalog(companyId: string): Promise<string | null> {
-  const stable = await getProductDetail(ANALYTICS_SUITE_PRODUCT_ID);
-  if (stable?.companyId === companyId) return ANALYTICS_SUITE_PRODUCT_ID;
-
-  const products = await listProducts(companyId);
-  const match = products.find((p) => p.name === "Analytics Suite");
-  if (match) return match.id;
-
-  return createProduct(companyId, analyticsSuiteSeed, ANALYTICS_SUITE_PRODUCT_ID);
-}
-
-async function findAcmeCompanyId(): Promise<string | undefined> {
+export async function findAcmeCompanyId(): Promise<string | undefined> {
   const companies = await listCompanies();
   return companies.find(
     (c) => c.name === DEFAULT_COMPANY_NAME || c.name === "Acme Analytics"
   )?.id;
 }
 
-/** Ensures default ACME company exists; migrates orphan rows only to ACME. */
+export async function seedAcmeCatalog(companyId: string): Promise<string | null> {
+  const products = await listProducts(companyId);
+  const match = products.find((p) => p.name === "Analytics Suite");
+  if (match) return match.id;
+
+  return createProduct(companyId, analyticsSuiteSeed);
+}
+
+/** Ensures default ACME company exists (uuid v4 id); returns that company's id. */
 export async function ensureAcmeCompany(): Promise<string> {
-  if (!(await getCompany(ACME_COMPANY_ID))) {
-    const legacyId = await findAcmeCompanyId();
-    if (!legacyId) {
-      await createCompany(DEFAULT_COMPANY_NAME, ACME_COMPANY_ID);
-    }
+  let id = await findAcmeCompanyId();
+  if (!id) {
+    id = await createCompany(DEFAULT_COMPANY_NAME);
   } else {
-    await execute(`UPDATE companies SET name = ? WHERE id = ?`, [
-      DEFAULT_COMPANY_NAME,
-      ACME_COMPANY_ID,
-    ]);
+    const col = await companiesCol();
+    await col.updateOne({ _id: id }, { $set: { name: DEFAULT_COMPANY_NAME } });
   }
 
-  const id = (await getCompany(ACME_COMPANY_ID))
-    ? ACME_COMPANY_ID
-    : (await findAcmeCompanyId())!;
-  await execute(`UPDATE products SET company_id = ? WHERE company_id IS NULL`, [id]);
-  await execute(`UPDATE quotes SET company_id = ? WHERE company_id IS NULL`, [id]);
+  const products = await productsCol();
+  await products.updateMany(
+    { companyId: { $exists: false } },
+    { $set: { companyId: id } }
+  );
+
+  const quotes = await quotesCol();
+  await quotes.updateMany(
+    { companyId: { $exists: false } },
+    { $set: { companyId: id } }
+  );
+
   await seedAcmeCatalog(id);
   return id;
 }

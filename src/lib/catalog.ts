@@ -1,5 +1,5 @@
-import { randomUUID } from "crypto";
-import { batch, execute, queryAll, queryOne } from "./db";
+import { productsCol, type ProductDoc } from "./db";
+import { uuidv4 } from "./uuid";
 import type {
   AddonPricing,
   Feature,
@@ -10,52 +10,36 @@ import type {
   Tier,
 } from "./types";
 
+function toProductDetail(doc: ProductDoc): ProductDetail {
+  return {
+    id: doc._id,
+    name: doc.name,
+    companyId: doc.companyId,
+    tiers: doc.tiers,
+    features: doc.features,
+    matrix: doc.matrix,
+    addonPricing: doc.addonPricing,
+  };
+}
+
 export async function listProducts(companyId: string): Promise<Product[]> {
-  return queryAll<Product>(
-    `SELECT id, name, company_id as companyId FROM products
-     WHERE company_id = ? ORDER BY created_at DESC`,
-    [companyId]
-  );
+  const col = await productsCol();
+  const docs = await col
+    .find({ companyId })
+    .sort({ createdAt: -1 })
+    .project<{ _id: string; name: string; companyId: string }>({
+      _id: 1,
+      name: 1,
+      companyId: 1,
+    })
+    .toArray();
+  return docs.map((d) => ({ id: d._id, name: d.name, companyId: d.companyId }));
 }
 
 export async function getProductDetail(productId: string): Promise<ProductDetail | null> {
-  const product = await queryOne<Product>(
-    "SELECT id, name, company_id as companyId FROM products WHERE id = ?",
-    [productId]
-  );
-  if (!product) return null;
-
-  const tiers = await queryAll<Tier>(
-    `SELECT id, product_id as productId, name, base_price_per_seat as basePricePerSeat,
-            notes, sort_order as sortOrder
-     FROM tiers WHERE product_id = ? ORDER BY sort_order, name`,
-    [productId]
-  );
-
-  const features = await queryAll<Feature>(
-    `SELECT id, product_id as productId, name, sort_order as sortOrder
-     FROM features WHERE product_id = ? ORDER BY sort_order, name`,
-    [productId]
-  );
-
-  const matrix = await queryAll<FeatureTierCell>(
-    `SELECT fta.feature_id as featureId, fta.tier_id as tierId, fta.availability
-     FROM feature_tier_availability fta
-     JOIN features f ON f.id = fta.feature_id
-     WHERE f.product_id = ?`,
-    [productId]
-  );
-
-  const addonPricing = await queryAll<AddonPricing>(
-    `SELECT ap.feature_id as featureId, ap.tier_id as tierId,
-            ap.pricing_model as pricingModel, ap.value
-     FROM addon_pricing ap
-     JOIN features f ON f.id = ap.feature_id
-     WHERE f.product_id = ?`,
-    [productId]
-  );
-
-  return { ...product, tiers, features, matrix, addonPricing };
+  const col = await productsCol();
+  const doc = await col.findOne({ _id: productId });
+  return doc ? toProductDetail(doc) : null;
 }
 
 export interface CreateProductInput {
@@ -71,62 +55,63 @@ export interface CreateProductInput {
   }[];
 }
 
+function buildProductDoc(
+  companyId: string,
+  productId: string,
+  input: CreateProductInput
+): ProductDoc {
+  const tierIds = input.tiers.map(() => uuidv4());
+  const featureIds = input.features.map(() => uuidv4());
+
+  const tiers = input.tiers.map((tier, i) => ({
+    id: tierIds[i],
+    productId,
+    name: tier.name,
+    basePricePerSeat: tier.basePricePerSeat,
+    notes: tier.notes ?? null,
+    sortOrder: i,
+  }));
+
+  const features = input.features.map((feature, i) => ({
+    id: featureIds[i],
+    productId,
+    name: feature.name,
+    sortOrder: i,
+  }));
+
+  const matrix = input.matrix.map((cell) => ({
+    featureId: featureIds[cell.featureIndex],
+    tierId: tierIds[cell.tierIndex],
+    availability: cell.availability,
+  }));
+
+  const addonPricing = input.addonPricing.map((ap) => ({
+    featureId: featureIds[ap.featureIndex],
+    tierId: tierIds[ap.tierIndex],
+    pricingModel: ap.pricingModel,
+    value: ap.value,
+  }));
+
+  return {
+    _id: productId,
+    companyId,
+    name: input.name,
+    createdAt: new Date().toISOString(),
+    tiers,
+    features,
+    matrix,
+    addonPricing,
+  };
+}
+
 export async function createProduct(
   companyId: string,
   input: CreateProductInput,
   productId?: string
 ): Promise<string> {
-  const id = productId ?? randomUUID();
-  const statements: { sql: string; args: (string | number | null)[] }[] = [
-    {
-      sql: "INSERT INTO products (id, name, company_id) VALUES (?, ?, ?)",
-      args: [id, input.name, companyId],
-    },
-  ];
-
-  const tierIds: string[] = [];
-  input.tiers.forEach((tier, i) => {
-    const tierId = randomUUID();
-    tierIds.push(tierId);
-    statements.push({
-      sql: `INSERT INTO tiers (id, product_id, name, base_price_per_seat, notes, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?)`,
-      args: [tierId, id, tier.name, tier.basePricePerSeat, tier.notes ?? null, i],
-    });
-  });
-
-  const featureIds: string[] = [];
-  input.features.forEach((feature, i) => {
-    const featureId = randomUUID();
-    featureIds.push(featureId);
-    statements.push({
-      sql: `INSERT INTO features (id, product_id, name, sort_order) VALUES (?, ?, ?, ?)`,
-      args: [featureId, id, feature.name, i],
-    });
-  });
-
-  for (const cell of input.matrix) {
-    statements.push({
-      sql: `INSERT INTO feature_tier_availability (feature_id, tier_id, availability)
-            VALUES (?, ?, ?)`,
-      args: [featureIds[cell.featureIndex], tierIds[cell.tierIndex], cell.availability],
-    });
-  }
-
-  for (const ap of input.addonPricing) {
-    statements.push({
-      sql: `INSERT INTO addon_pricing (feature_id, tier_id, pricing_model, value)
-            VALUES (?, ?, ?, ?)`,
-      args: [
-        featureIds[ap.featureIndex],
-        tierIds[ap.tierIndex],
-        ap.pricingModel,
-        ap.value,
-      ],
-    });
-  }
-
-  await batch(statements);
+  const id = productId ?? uuidv4();
+  const col = await productsCol();
+  await col.insertOne(buildProductDoc(companyId, id, input));
   return id;
 }
 
@@ -134,74 +119,22 @@ export async function updateProduct(
   productId: string,
   input: CreateProductInput
 ): Promise<void> {
-  const statements: { sql: string; args: (string | number | null)[] }[] = [
-    {
-      sql: "UPDATE products SET name = ? WHERE id = ?",
-      args: [input.name, productId],
-    },
-    { sql: "DELETE FROM tiers WHERE product_id = ?", args: [productId] },
-    { sql: "DELETE FROM features WHERE product_id = ?", args: [productId] },
-  ];
+  const col = await productsCol();
+  const existing = await col.findOne({ _id: productId });
+  if (!existing) return;
 
-  const tierIds: string[] = [];
-  input.tiers.forEach((tier, i) => {
-    const tierId = randomUUID();
-    tierIds.push(tierId);
-    statements.push({
-      sql: `INSERT INTO tiers (id, product_id, name, base_price_per_seat, notes, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?)`,
-      args: [tierId, productId, tier.name, tier.basePricePerSeat, tier.notes ?? null, i],
-    });
-  });
-
-  const featureIds: string[] = [];
-  input.features.forEach((feature, i) => {
-    const featureId = randomUUID();
-    featureIds.push(featureId);
-    statements.push({
-      sql: `INSERT INTO features (id, product_id, name, sort_order) VALUES (?, ?, ?, ?)`,
-      args: [featureId, productId, feature.name, i],
-    });
-  });
-
-  for (const cell of input.matrix) {
-    statements.push({
-      sql: `INSERT INTO feature_tier_availability (feature_id, tier_id, availability)
-            VALUES (?, ?, ?)`,
-      args: [featureIds[cell.featureIndex], tierIds[cell.tierIndex], cell.availability],
-    });
-  }
-
-  for (const ap of input.addonPricing) {
-    statements.push({
-      sql: `INSERT INTO addon_pricing (feature_id, tier_id, pricing_model, value)
-            VALUES (?, ?, ?, ?)`,
-      args: [
-        featureIds[ap.featureIndex],
-        tierIds[ap.tierIndex],
-        ap.pricingModel,
-        ap.value,
-      ],
-    });
-  }
-
-  await batch(statements);
+  const doc = buildProductDoc(existing.companyId, productId, input);
+  doc.createdAt = existing.createdAt;
+  await col.replaceOne({ _id: productId }, doc);
 }
 
 export async function deleteProduct(
   productId: string,
   companyId: string
 ): Promise<boolean> {
-  const row = await queryOne<{ companyId: string | null }>(
-    `SELECT company_id as companyId FROM products WHERE id = ?`,
-    [productId]
-  );
-  if (!row || row.companyId !== companyId) return false;
-  const changes = await execute(
-    `DELETE FROM products WHERE id = ? AND company_id = ?`,
-    [productId, companyId]
-  );
-  return changes > 0;
+  const col = await productsCol();
+  const result = await col.deleteOne({ _id: productId, companyId });
+  return result.deletedCount > 0;
 }
 
 export async function getAddonsForTier(

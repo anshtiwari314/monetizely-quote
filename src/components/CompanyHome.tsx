@@ -70,7 +70,7 @@ export function CompanyHome({ companies: initial }: { companies: Company[] }) {
   }
 
   return (
-    <div className="space-y-8">
+    <div suppressHydrationWarning className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-zinc-900">Monetizely Quote Tool</h1>
@@ -106,7 +106,7 @@ export function CompanyHome({ companies: initial }: { companies: Company[] }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Company name"
-            className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black"
+            className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-black placeholder:text-zinc-500 placeholder:opacity-100"
           />
         </div>
         <button

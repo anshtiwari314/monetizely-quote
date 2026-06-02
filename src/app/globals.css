@@ -28,5 +28,40 @@ textarea,
 select {
   color: #000000;
   background-color: #ffffff;
-  -webkit-text-fill-color: #000000;
+}
+
+/* Keep input text black without using -webkit-text-fill-color.
+   That property can interfere with placeholder rendering in Firefox. */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea {
+  color: #000000;
+}
+
+/* Grey placeholders — explicit rules so WebKit/Firefox show them correctly */
+input:not([type="checkbox"]):not([type="radio"])::placeholder,
+textarea::placeholder {
+  color: #71717a;
+  opacity: 1;
+}
+
+input:not([type="checkbox"]):not([type="radio"])::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder {
+  color: #71717a;
+  -webkit-text-fill-color: #71717a;
+  opacity: 1;
+}
+
+input:not([type="checkbox"]):not([type="radio"])::-moz-placeholder,
+textarea::-moz-placeholder {
+  color: #71717a !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: #71717a !important;
+}
+
+/* Force placeholders in all engines. */
+input::placeholder,
+textarea::placeholder {
+  color: #71717a !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: #71717a !important;
 }

@@ -14,9 +14,6 @@ export default defineConfig({
     command: "npm run dev -- --port 3000",
     url: "http://127.0.0.1:3000",
     reuseExistingServer: false,
-    env: {
-      DATABASE_PATH: "./data/test-e2e.db",
-    },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

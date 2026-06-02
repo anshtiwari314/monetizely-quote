@@ -24,11 +24,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      {/* Browser extensions (e.g. Bitdefender) inject bis_skin_checked on <head> children */}
+      <head suppressHydrationWarning />
       <body
         suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased`}
       >
-        {children}
+        <div suppressHydrationWarning className="contents">
+          {children}
+        </div>
       </body>
     </html>
   );

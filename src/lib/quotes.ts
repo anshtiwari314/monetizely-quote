@@ -1,6 +1,6 @@
-import { randomUUID } from "crypto";
 import { getProductDetail } from "./catalog";
-import { batch, columnExists, execute, queryAll, queryOne } from "./db";
+import { uuidv4 } from "./uuid";
+import { quotesCol } from "./db";
 import { buildQuoteBreakdown } from "./pricing";
 import type { ProductDetail } from "./types";
 import type { QuoteInput, QuoteRecord } from "./types";
@@ -11,19 +11,12 @@ function addMonthsIso(date: Date, months: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const CLIENT_NAME_SQL = `COALESCE(q.client_name, q.customer_name)`;
-
-function tierNameFromBreakdown(breakdownJson: string): string | null {
-  try {
-    const breakdown = JSON.parse(breakdownJson) as {
-      lineItems?: { label?: string }[];
-    };
-    const label = breakdown.lineItems?.[0]?.label ?? "";
-    const match = label.match(/ - (.+?) tier$/i);
-    return match?.[1] ?? null;
-  } catch {
-    return null;
-  }
+function tierNameFromBreakdown(
+  breakdown: QuoteRecord["breakdown"]
+): string | null {
+  const label = breakdown.lineItems?.[0]?.label ?? "";
+  const match = label.match(/ - (.+?) tier$/i);
+  return match?.[1] ?? null;
 }
 
 /** Map a quote to a current catalog tier when the saved tier id was replaced (catalog re-save). */
@@ -44,118 +37,39 @@ async function persistQuote(
   input: QuoteInput,
   breakdown: ReturnType<typeof buildQuoteBreakdown>,
   featureNames: Record<string, string>,
-  options: { createdAt: string; validUntil: string; isNew: boolean }
+  options: { createdAt: string; validUntil: string }
 ): Promise<void> {
-  const hasLegacyCustomerName = await columnExists("quotes", "customer_name");
-  const statements: { sql: string; args: (string | number | null)[] }[] = [];
+  const col = await quotesCol();
+  const addons = input.addons.map((addon) => ({
+    featureId: addon.featureId,
+    featureName: featureNames[addon.featureId] ?? addon.featureId,
+    addonSeats: addon.addonSeats ?? null,
+    addonPercent: addon.percentValue ?? null,
+  }));
 
-  if (options.isNew) {
-    if (hasLegacyCustomerName) {
-      statements.push({
-        sql: `INSERT INTO quotes (
-          id, name, client_name, customer_name, company_id, product_id, tier_id, seats,
-          term_length, discount_percent, breakdown_json, created_at, valid_until
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          quoteId,
-          input.name,
-          input.clientName,
-          input.clientName,
-          input.companyId,
-          input.productId,
-          input.tierId,
-          input.seats,
-          input.termLength,
-          input.discountPercent ?? 0,
-          JSON.stringify(breakdown),
-          options.createdAt,
-          options.validUntil,
-        ],
-      });
-    } else {
-      statements.push({
-        sql: `INSERT INTO quotes (
-          id, name, client_name, company_id, product_id, tier_id, seats, term_length,
-          discount_percent, breakdown_json, created_at, valid_until
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          quoteId,
-          input.name,
-          input.clientName,
-          input.companyId,
-          input.productId,
-          input.tierId,
-          input.seats,
-          input.termLength,
-          input.discountPercent ?? 0,
-          JSON.stringify(breakdown),
-          options.createdAt,
-          options.validUntil,
-        ],
-      });
-    }
-  } else {
-    if (hasLegacyCustomerName) {
-      statements.push({
-        sql: `UPDATE quotes SET
-          name = ?, client_name = ?, customer_name = ?, product_id = ?, tier_id = ?, seats = ?,
-          term_length = ?, discount_percent = ?, breakdown_json = ?, valid_until = ?
-         WHERE id = ?`,
-        args: [
-          input.name,
-          input.clientName,
-          input.clientName,
-          input.productId,
-          input.tierId,
-          input.seats,
-          input.termLength,
-          input.discountPercent ?? 0,
-          JSON.stringify(breakdown),
-          options.validUntil,
-          quoteId,
-        ],
-      });
-    } else {
-      statements.push({
-        sql: `UPDATE quotes SET
-          name = ?, client_name = ?, product_id = ?, tier_id = ?, seats = ?,
-          term_length = ?, discount_percent = ?, breakdown_json = ?, valid_until = ?
-         WHERE id = ?`,
-        args: [
-          input.name,
-          input.clientName,
-          input.productId,
-          input.tierId,
-          input.seats,
-          input.termLength,
-          input.discountPercent ?? 0,
-          JSON.stringify(breakdown),
-          options.validUntil,
-          quoteId,
-        ],
-      });
-    }
-    statements.push({
-      sql: "DELETE FROM quote_addons WHERE quote_id = ?",
-      args: [quoteId],
-    });
-  }
-
-  for (const addon of input.addons) {
-    statements.push({
-      sql: `INSERT INTO quote_addons (quote_id, feature_id, feature_name, addon_seats, addon_percent)
-            VALUES (?, ?, ?, ?, ?)`,
-      args: [
-        quoteId,
-        addon.featureId,
-        featureNames[addon.featureId] ?? addon.featureId,
-        addon.addonSeats ?? null,
-        addon.percentValue ?? null,
-      ],
-    });
-  }
-
-  await batch(statements);
+  await col.updateOne(
+    { _id: quoteId },
+    {
+      $set: {
+        name: input.name,
+        clientName: input.clientName,
+        companyId: input.companyId,
+        productId: input.productId,
+        tierId: input.tierId,
+        seats: input.seats,
+        termLength: input.termLength,
+        discountPercent: input.discountPercent ?? 0,
+        breakdown,
+        validUntil: options.validUntil,
+        addons,
+      },
+      $setOnInsert: {
+        _id: quoteId,
+        createdAt: options.createdAt,
+      },
+    },
+    { upsert: true }
+  );
 }
 
 async function computeQuotePayload(input: QuoteInput) {
@@ -194,14 +108,13 @@ async function computeQuotePayload(input: QuoteInput) {
 
 export async function createQuote(input: QuoteInput): Promise<string> {
   const { breakdown, featureNames } = await computeQuotePayload(input);
-  const quoteId = randomUUID();
+  const quoteId = uuidv4();
   const createdAt = new Date().toISOString();
   const validUntil = addMonthsIso(new Date(), 1);
 
   await persistQuote(quoteId, input, breakdown, featureNames, {
     createdAt,
     validUntil,
-    isNew: true,
   });
   return quoteId;
 }
@@ -217,69 +130,36 @@ export async function updateQuote(quoteId: string, input: QuoteInput): Promise<v
   await persistQuote(quoteId, input, breakdown, featureNames, {
     createdAt: existing.createdAt,
     validUntil: addMonthsIso(new Date(), 1),
-    isNew: false,
   });
 }
 
 export async function getQuote(quoteId: string): Promise<QuoteRecord | null> {
-  const row = await queryOne<{
-    id: string;
-    name: string;
-    clientName: string;
-    companyId: string;
-    productId: string;
-    productName: string;
-    tierId: string;
-    tierName: string;
-    seats: number;
-    termLength: QuoteRecord["termLength"];
-    discountPercent: number;
-    breakdownJson: string;
-    createdAt: string;
-    validUntil: string;
-  }>(
-    `SELECT q.id, q.name, ${CLIENT_NAME_SQL} as clientName, q.company_id as companyId,
-            q.product_id as productId, p.name as productName, q.tier_id as tierId,
-            t.name as tierName, q.seats, q.term_length as termLength,
-            q.discount_percent as discountPercent, q.breakdown_json as breakdownJson,
-            q.created_at as createdAt, q.valid_until as validUntil
-     FROM quotes q
-     LEFT JOIN products p ON p.id = q.product_id
-     LEFT JOIN tiers t ON t.id = q.tier_id
-     WHERE q.id = ?`,
-    [quoteId]
-  );
+  const col = await quotesCol();
+  const doc = await col.findOne({ _id: quoteId });
+  if (!doc) return null;
 
-  if (!row) return null;
-
+  const product = await getProductDetail(doc.productId);
   const tierName =
-    row.tierName ??
-    tierNameFromBreakdown(row.breakdownJson) ??
+    product?.tiers.find((t) => t.id === doc.tierId)?.name ??
+    tierNameFromBreakdown(doc.breakdown) ??
     "Unknown tier";
 
-  const selectedAddons = await queryAll<QuoteRecord["selectedAddons"][number]>(
-    `SELECT feature_id as featureId, feature_name as featureName,
-            addon_seats as addonSeats, addon_percent as addonPercent
-     FROM quote_addons WHERE quote_id = ?`,
-    [quoteId]
-  );
-
   return {
-    id: row.id,
-    name: row.name,
-    clientName: row.clientName,
-    companyId: row.companyId,
-    productId: row.productId,
-    productName: row.productName,
-    tierId: row.tierId,
+    id: doc._id,
+    name: doc.name,
+    clientName: doc.clientName,
+    companyId: doc.companyId,
+    productId: doc.productId,
+    productName: product?.name ?? "Unknown product",
+    tierId: doc.tierId,
     tierName,
-    seats: row.seats,
-    termLength: row.termLength,
-    discountPercent: row.discountPercent,
-    createdAt: row.createdAt,
-    validUntil: row.validUntil,
-    breakdown: JSON.parse(row.breakdownJson),
-    selectedAddons,
+    seats: doc.seats,
+    termLength: doc.termLength,
+    discountPercent: doc.discountPercent,
+    createdAt: doc.createdAt,
+    validUntil: doc.validUntil,
+    breakdown: doc.breakdown,
+    selectedAddons: doc.addons,
   };
 }
 
@@ -292,27 +172,14 @@ export interface QuoteListItem {
 }
 
 export async function listQuotes(companyId: string): Promise<QuoteListItem[]> {
-  const rows = await queryAll<{
-    id: string;
-    name: string;
-    clientName: string;
-    createdAt: string;
-    breakdownJson: string;
-  }>(
-    `SELECT id, name, ${CLIENT_NAME_SQL} as clientName, created_at as createdAt,
-            breakdown_json as breakdownJson
-     FROM quotes q
-     WHERE company_id = ?
-     ORDER BY created_at DESC`,
-    [companyId]
-  );
-
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    clientName: r.clientName,
-    createdAt: r.createdAt,
-    total: (JSON.parse(r.breakdownJson) as { total: number }).total,
+  const col = await quotesCol();
+  const docs = await col.find({ companyId }).sort({ createdAt: -1 }).toArray();
+  return docs.map((d) => ({
+    id: d._id,
+    name: d.name,
+    clientName: d.clientName,
+    createdAt: d.createdAt,
+    total: d.breakdown.total,
   }));
 }
 
@@ -320,9 +187,7 @@ export async function deleteQuote(
   quoteId: string,
   companyId: string
 ): Promise<boolean> {
-  const changes = await execute(
-    `DELETE FROM quotes WHERE id = ? AND company_id = ?`,
-    [quoteId, companyId]
-  );
-  return changes > 0;
+  const col = await quotesCol();
+  const result = await col.deleteOne({ _id: quoteId, companyId });
+  return result.deletedCount > 0;
 }
